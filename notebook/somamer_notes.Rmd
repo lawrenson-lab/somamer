@@ -133,9 +133,36 @@ temp%>%ggplot(aes(x=contrast,y=LFC))+geom_boxplot()+
   geom_text_repel(data = temp%>%group_by(contrast)%>%slice_max(abs(LFC),n=10),
               #label top 10 altered genes
                   aes(x=contrast,y=LFC,label=Gene))
+
+# check expression distribution for some genes
+temp<-data%>%filter(Gene%in%c("CRDL2","SAA"))%>%
+  select(SeqID,Gene,Counts_BEME004_Control_Control_NA:Counts_Test00005_Endometriosis_NA_NA)%>%
+  pivot_longer(-1,names_to = "sample",values_to = "expr")%>%
+  mutate(sampletype=str_split_i(sample,pattern = "_",i = 3),
+         Gene=paste0(Gene,":",SeqID))
+temp%>%
+  ggplot(aes(x=sampletype,y=expr))+geom_violin()+geom_boxplot(width=.1)+
+  scale_y_log10()+facet_grid(~Gene)+
+  theme(axis.text.x = element_text(angle=45,vjust = 1,hjust = 1))+
+  stat_compare_means(label = "p.signif",
+                     comparisons = list(c("Control","Endometrioma"),
+                                        c("Control","Endometriosis"),
+                                        c("Control","EndometriosisLAneg"),
+                                        c("Control","EndometriosisLApos")))
+temp%>%distinct(sample,sampletype)%>%count(sampletype)
 ```
 
 # Does enrichment make sense with this type of data?
 ```{r}
+temp<-data%>%select(Gene,Log2FC_EDTA.CPT,Log2FC_Endometriosis.Control,
+                    Log2FC_Endometrioma.Control,Log2FC_LApos.LAneg)%>%
+  pivot_longer(-1,names_to = "contrast",values_to = "LFC")
+ranks<-temp%>%split(f = temp$contast)%>%lapply(function(x) 
+  x%>%drop_na()%>%group_by(Gene)%>%slice_max(LFC)%>%arrange(desc(LFC))%>%
+    select(-contast)%>%deframe)
 
+#find appropiate db for this ids
+gseares<-lapply(ranks,function(x) 
+  gseGO(geneList = x,keyType = "SYMBOL",ont="BP",OrgDb = 'org.Hs.eg.db'))
+sapply(gseares,nrow)
 ```
