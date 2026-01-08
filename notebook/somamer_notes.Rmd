@@ -8,7 +8,7 @@ library(tidyverse)
 library(rstatix)
 library(ggrepel)
 #read the data
-data<-readxl::read_excel("227_0001_01_UTHSA_Report.xlsx",sheet = "Proteins")
+data<-readxl::read_excel("data/227_0001_01_UTHSA_Report.xlsx",sheet = "Proteins")
 #the :: operator allows you to use function read_excel from library readxl without loading the library
 ```
 
@@ -22,7 +22,7 @@ dim(data)#to see data size
 
 data%>%
   select(SeqID:Gene)%>%#to see from column SeqID to column Gene
-  apply(2,function(x) #apply to every column (represented by x) the function in line 24
+  apply(2,function(x) #apply to every column (represented by x) the function in line 27
     #2 means columns, 1 would run over rows
   length(unique(x)))# length of a set with the non duplicated values from column x
 #  SeqID Uniprot    Gene 
@@ -75,12 +75,12 @@ temp%>%
 
 ## Check samples in columns
 ```{r}
-temp<-data%>%
+mat<-data%>%
   select(SeqID,Counts_BEME004_Control_Control_NA:Counts_Test00005_Endometriosis_NA_NA)%>%
   column_to_rownames("SeqID")#rownames need to be unique
 summary(temp)%>%view()#to see the range of the expression values per sample
 
-pcares<-temp%>%
+pcares<-mat%>%
   log()%>%#log transform the data to stabilize the variance
   t()%>%#transpose the matrix
   prcomp()#pca
@@ -94,13 +94,12 @@ temp%>%ggplot(aes(x=PC1,y=PC2,col=type))+#to color by the new type column
   geom_text_repel(data=temp%>%slice_min(PC2,n = 3),aes(x=PC1,y=PC2,label=sample))+
   geom_text_repel(data=temp%>%slice_min(PC1,n = 3),aes(x=PC1,y=PC2,label=sample))
 #spot the outlier
+
 #you can check if any of the PCs separates the groups
-temp%>%
-  select(type,PC1:PC2)%>%
-  pivot_longer(-1,names_to = "comp",values_to = "variate")%>%
-  group_by(comp)%>%#for every component
-  wilcox_test(variate~type)%>%#see if coordinates change between groups
-  view()
+testres<-temp%>%pivot_longer(PC1:PC85,names_to = "comp",values_to = "variate")%>%
+  group_by(comp)%>%
+  wilcox_test(variate~type)
+testres%>%filter(p.adj<0.05)
 
 #check expression by sample
 #like summary but visual
