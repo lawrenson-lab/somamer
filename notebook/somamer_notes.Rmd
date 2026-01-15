@@ -73,35 +73,64 @@ temp%>%
 
 ```
 
-## Check samples in columns
+## PCA
 ```{r}
-mat<-data%>%
-  select(SeqID,Counts_BEME004_Control_Control_NA:Counts_Test00005_Endometriosis_NA_NA)%>%
-  column_to_rownames("SeqID")#rownames need to be unique
-summary(temp)%>%view()#to see the range of the expression values per sample
+mat<-data%>%select(Counts_BEME004_Control_Control_NA:
+                     Counts_Test00005_Endometriosis_NA_NA)
+#to have duplicated gene names
+rownames(mat)<-make.names(data$Gene,unique = 1)
+#adds X at the beginning of gene names that start with number
+#adds .1,.2,... at the end of duplicated genes
 
 pcares<-mat%>%
   log()%>%#log transform the data to stabilize the variance
   t()%>%#transpose the matrix
-  prcomp()#pca
+  prcomp(scale. = T)#pca
 temp<-pcares$x%>%as.data.frame()#to get the coordinates of the samples in the dimension reduced space
+
+#there are as many components as samples
+ncol(mat)==ncol(temp)
+#for elbow plot
+data.frame(var_percent=100*pcares$sdev**2/sum(pcares$sdev**2),
+           pc=1:length(pcares$sdev))%>%
+  ggplot(aes(x=pc,y=var_percent))+geom_col()
+#you need 15 components to explain 50% of data variances
+
 temp<-temp%>%
   rownames_to_column("sample")%>%#opposite to column_to_rownames
-  mutate(type=str_split_i(sample,pattern = "_",i = 3))#create a new column named type by
-  #splitting sample names at every "_" an keeping the 3rd value 
+  mutate(type=str_split_i(sample,pattern = "_",i = 3))#create a new column named type by splitting sample names at every "_" an keeping the 3rd value 
 temp%>%ggplot(aes(x=PC1,y=PC2,col=type))+#to color by the new type column
   geom_point()+#for scatterplot
-  geom_text_repel(data=temp%>%slice_min(PC2,n = 3),aes(x=PC1,y=PC2,label=sample))+
-  geom_text_repel(data=temp%>%slice_min(PC1,n = 3),aes(x=PC1,y=PC2,label=sample))
+  geom_text_repel(data=temp%>%slice_min(PC2,n = 3),
+                  aes(x=PC1,y=PC2,label=sample))+
+  geom_text_repel(data=temp%>%slice_min(PC1,n = 3),
+                  aes(x=PC1,y=PC2,label=sample))
 #spot the outlier
 
 #you can check if any of the PCs separates the groups
-testres<-temp%>%pivot_longer(PC1:PC85,names_to = "comp",values_to = "variate")%>%
+testres<-temp%>%
+  pivot_longer(PC1:PC85,names_to = "comp",values_to = "variate")%>%
   group_by(comp)%>%
   wilcox_test(variate~type)
 testres%>%filter(p.adj<0.05)
 
-#check expression by sample
+#lack of clustering indicates too much noisy proteins
+i<-which(abs(data$Log2FC_LApos.LAneg)>=1)
+pcares<-mat[i,]%>%
+    log()%>%#log transform the data to stabilize the variance
+    t()%>%#transpose the matrix
+    prcomp(scale. = T)#pca
+temp<-pcares$x%>%as.data.frame()
+temp%>%
+    rownames_to_column("sample")%>%#opposite to column_to_rownames
+    mutate(type=str_split_i(sample,pattern = "_",i = 3))%>%
+    ggplot(aes(x=PC1,y=PC2,col=type))+#to color by the new type column
+    geom_point()
+```
+# Check expression by sample
+```{r}
+summary(mat)#statistics about value distribution for the sample
+
 #like summary but visual
 temp<-temp%>%rownames_to_column("SeqID")%>%
   pivot_longer(-1,names_to = "sample",values_to = "raw_value")
