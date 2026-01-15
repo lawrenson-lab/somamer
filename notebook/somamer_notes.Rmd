@@ -1,7 +1,7 @@
 ---
-title: "QC overview. Boring but relevant
-"
+title: "QC overview. Boring but relevant"
 ---
+aims:
 
 ```{r}
 library(tidyverse)
@@ -31,50 +31,6 @@ data%>%
 ```
 ## Check variables in rows (proteins, genes, whatever is in your table )
 ```{r}
-#recover duplicated protein IDs
-duplicated_proteins<-data%>%
-  select(SeqID:Gene)%>%
-  add_count(Uniprot)%>%#to count how many times each protein appears
-  filter(n>1)%>%#to keep non unique proteins
-  arrange(Uniprot)#so you can see SeqIDs for the same protein together
-  #do the equivalent for genes
-
-#check the distribution of some proteins
-data%>%
-  filter(Uniprot%in%c("A6NH11","A8K4G0"))%>%#to see only these 2 (duplicated) proteins
-  select(SeqID,Gene,Counts_BEME004_Control_Control_NA:Counts_BEME639_Control_Control_NA)%>%
-  pivot_longer(Counts_BEME004_Control_Control_NA:Counts_BEME639_Control_Control_NA,
-               names_to = "sample",values_to = "raw_values")%>%#reshape the table
-               #all Counts_... column names will become the values a column named sample
-               #the expression values of Counts_... columns will be in column raw_values
-  #try the previous 5 columns first, so you can see the reshaped table
-  ggplot(aes(x=raw_values,col=SeqID))+#to plot with raw_values in x axis and 1 color per unique identifier
-  geom_density()+# to see expression distribution, y axis will be the frequency of values in x axis
-  facet_grid(rows=vars(Gene))#to have a plot per Gene, order by rows
-#try chaging geom_density with geom_histogram
-#do you think seq.10713.151 is expressed?
-#what about seq.29496.20?
-
-#check the average value for all probes
-temp<-data%>%
-  select(SeqID,Gene,Counts_BEME004_Control_Control_NA:Counts_BEME639_Control_Control_NA)%>%
-  pivot_longer(Counts_BEME004_Control_Control_NA:Counts_BEME639_Control_Control_NA,
-               names_to = "sample",values_to = "raw_values")%>%
-  group_by(SeqID)%>%summarise(avg=mean(raw_values))#to get the mean of raw_values for every group
-# plot
-temp%>%
-  ggplot(aes(x=0,y=avg))+#arbitrary x
-  geom_boxplot()+
-  geom_text_repel(data=temp%>%slice_min(avg,n=3),#to get the 3 probes with the lowest average
-                  aes(x=0,y=avg,label=SeqID))+#to label boxplot points
-  scale_y_log10()#so y axis in log10 scale
-#do you think seq.10024.44 is expressed?
-#try labeling the top probes
-
-```
-
-## PCA
-```{r}
 mat<-data%>%select(Counts_BEME004_Control_Control_NA:
                      Counts_Test00005_Endometriosis_NA_NA)
 #to have duplicated gene names
@@ -82,6 +38,30 @@ rownames(mat)<-make.names(data$Gene,unique = 1)
 #adds X at the beginning of gene names that start with number
 #adds .1,.2,... at the end of duplicated genes
 
+#check the average value for all probes
+temp<-tibble(avg=rowMeans(mat))
+temp%>%ggplot(aes(x=avg))+geom_histogram()+scale_x_log10()+
+  ggtitle("Average signal distribution")
+#which features should be filtered out
+temp%>%mutate(gene=rownames(mat))%>%filter(avg<100)
+
+#check the distribution per type of sample
+temp<-data.frame(sample=colnames(mat),
+                 type=str_split_i(colnames(mat),pattern = '_',i = 3))
+temp1<-temp%>%split(f = temp$type)%>%
+  sapply(function(x) rowMeans(mat[,x$sample]))
+temp1<-temp1%>%as.data.frame()%>%mutate(gene=rownames(mat))%>%
+  pivot_longer(-gene,names_to = "type",values_to = "avg")
+temp1%>%ggplot(aes(x=type,y=avg))+geom_boxplot()+
+  geom_text_repel(data=temp1%>%group_by(type)%>%
+                    slice_min(avg,n = 2),aes(x=type,y=avg,label=gene))+
+  geom_text_repel(data=temp1%>%group_by(type)%>%
+                    slice_max(avg,n = 2),aes(x=type,y=avg,label=gene))+
+  scale_y_log10()
+```
+
+## PCA
+```{r}
 pcares<-mat%>%
   log()%>%#log transform the data to stabilize the variance
   t()%>%#transpose the matrix
@@ -127,6 +107,7 @@ temp%>%
     ggplot(aes(x=PC1,y=PC2,col=type))+#to color by the new type column
     geom_point()
 ```
+
 # Check expression by sample
 ```{r}
 summary(mat)#statistics about value distribution for the sample
@@ -149,7 +130,7 @@ temp%>%
 ```
 # top genes per contrast
 ```{r}
-#to check the changes betwtween conditions
+#to check the changes between conditions
 temp<-data%>%select(Gene,Log2FC_LApos.LAneg,
               Log2FC_Endometrioma.Control,
               Log2FC_Endometriosis.Control,
