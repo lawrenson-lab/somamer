@@ -32,7 +32,8 @@ data%>%
 ## Check variables in rows (proteins, genes, whatever is in your table )
 ```{r}
 mat<-data%>%select(Counts_BEME004_Control_Control_NA:
-                     Counts_Test00005_Endometriosis_NA_NA)
+                     Counts_Test00005_Endometriosis_NA_NA)%>%
+  as.matrix()
 #to have duplicated gene names
 rownames(mat)<-make.names(data$Gene,unique = 1)
 #adds X at the beginning of gene names that start with number
@@ -56,7 +57,7 @@ temp1%>%ggplot(aes(x=type,y=avg))+geom_boxplot()+
   geom_text_repel(data=temp1%>%group_by(type)%>%
                     slice_min(avg,n = 2),aes(x=type,y=avg,label=gene))+
   geom_text_repel(data=temp1%>%group_by(type)%>%
-                    slice_max(avg,n = 2),aes(x=type,y=avg,label=gene))+
+                    slice_max(avg,n = 3),aes(x=type,y=avg,label=gene))+
   scale_y_log10()
 ```
 
@@ -106,6 +107,63 @@ temp%>%
     mutate(type=str_split_i(sample,pattern = "_",i = 3))%>%
     ggplot(aes(x=PC1,y=PC2,col=type))+#to color by the new type column
     geom_point()
+```
+
+# Add metadata
+```{r}
+meta<-read_tsv("data/somamer_cohort_demographics")
+temp<-as.data.frame(cbind(Sample=colnames(mat),
+                          subject_id=str_split_i(colnames(mat),"_",i = 2)))
+#check mismatches
+temp[!temp$subject_id%in%meta$subject_id,]
+#85 Counts_Test00005_Endometriosis_NA_NA  Test00005
+#homogenize subject_id
+meta<-meta%>%mutate(subject_id=str_replace(subject_id," ","0"))
+#temp[!temp$subject_id%in%meta$subject_id,]# empty now
+meta<-meta%>%left_join(temp)
+
+#maker tge data columns order match metadata
+mat<-mat[,meta$Sample]
+
+#example plot
+temp<-mat%>%t()%>%as.data.frame()%>%rownames_to_column("Sample")
+temp%>%select(Sample,IL32)%>%left_join(meta)%>%
+  ggplot(aes(x=race2,y=IL32))+geom_violin()+
+  geom_jitter(wdith=.1)+geom_boxplot(width=.1)+
+  theme(axis.text.x=element_text(angle=45,vjust = 1,hjust = 1))+
+  stat_compare_means(label='p.signif',ref.group = "White")
+#enough non white patients to see differences?
+```
+
+# Differential expression
+```{r}
+#Is limma really correct for this tye of data?
+library(limma)
+
+#limma doesn't like spaces/complex names
+meta<-meta%>%mutate(AltCategory=str_replace(Category," ","_")%>%
+                      str_replace("-$","neg")%>%
+                      str_replace("\\+$","pos"),
+                    assumed_phase=replace_na(assumed_phase,"unknown"))
+
+#set up themodel to fit 
+designM<-model.matrix(~0+assumed_phase+AltCategory,data=meta)
+#report says data is log transformed but range is too wide so
+voomres<-voom(mat,design = designM,plot = T)#optional normalization
+#best correlation with supplied LFC for LA+vsLA- (.939 vs .938)
+#padj corr with either log10,log2,voom or raw is tiny and significant
+
+#linear model considering the variable in the matrix
+fit<-lmFit(voomres,designM)
+#compare variables as named in the design matrix
+cont<-makeContrasts(assumed_phasefollicular-assumed_phaseluteal,
+                    levels = designM)
+fit<-contrasts.fit(fit,cont)
+# test: treat is better, ebayes is less strict?
+fit <- eBayes(fit, robust=TRUE)
+#diffrential results per gene
+res<-topTable(fit,number = nrow(mat),coef = 1)
+
 ```
 
 # Check expression by sample
