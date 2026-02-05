@@ -1,5 +1,5 @@
 ---
-title: "QC overview. Boring but relevant"
+title: "Tips to start. Cut/paste/modify what you need"
 ---
 aims:
 
@@ -7,6 +7,7 @@ aims:
 library(tidyverse)
 library(rstatix)
 library(ggrepel)
+library(ggpubr)
 #read the data
 data<-readxl::read_excel("data/227_0001_01_UTHSA_Report.xlsx",sheet = "Proteins")
 #the :: operator allows you to use function read_excel from library readxl without loading the library
@@ -122,7 +123,7 @@ meta<-meta%>%mutate(subject_id=str_replace(subject_id," ","0"))
 #temp[!temp$subject_id%in%meta$subject_id,]# empty now
 meta<-meta%>%left_join(temp)
 
-#maker tge data columns order match metadata
+#maker the data columns order match metadata
 mat<-mat[,meta$Sample]
 
 #example plot
@@ -137,7 +138,6 @@ temp%>%select(Sample,IL32)%>%left_join(meta)%>%
 
 # Differential expression
 ```{r}
-#Is limma really correct for this tye of data?
 library(limma)
 
 #limma doesn't like spaces/complex names
@@ -163,30 +163,32 @@ fit<-contrasts.fit(fit,cont)
 fit <- eBayes(fit, robust=TRUE)
 #diffrential results per gene
 res<-topTable(fit,number = nrow(mat),coef = 1)
-
+res<-res%>%rownames_to_column("feature")
+#nothing is significant
+summary(res$adj.P.Val)
+#volcano plot
+res%>%ggplot(aes(x=logFC,y=-log10(P.Value)))+geom_point()+
+  #add labels to the most different genes
+  geom_text_repel(data=res%>%filter(abs(logFC)>.75),
+                  aes(x=logFC,y=-log10(P.Value),label=feature))
 ```
-
-# Check expression by sample
+# Does enrichment make sense with this type of data?
 ```{r}
-summary(mat)#statistics about value distribution for the sample
+library(clusterProfiler)
+res<-res[order(match(res$feature,rownames(mat))),]
+res$Uniprot<-data$Uniprot
 
-#like summary but visual
-temp<-temp%>%rownames_to_column("SeqID")%>%
-  pivot_longer(-1,names_to = "sample",values_to = "raw_value")
-temp%>%ggplot(aes(x=sample,y=raw_value))+
-  geom_boxplot()+
-  scale_y_log10()+
-  theme(axis.text.x = element_text(angle=45,vjust = 1,hjust = 1))#otherwise samplenames will be horizontal and unreadable
-#samples with really different distributions may be a red flag
-
-#you can check distributions are not significantly different but this is slow
-#run it for some samples
-temp%>%
-  wilcox_test(raw_value~sample,#test expression by sample
-              ref.group ="Counts_BEME025_Endometrioma_Endometrioma_NA")#arbitrary reference
-#there are better test for this, what did they used for the report?
+#what is the best way to deal with duplicates?
+i<-res$uniprot[duplicated(res$uniprot)]
+res%>%filter(uniprot=="P02765")
+#               feature       logFC  AveExpr          t   P.Value adj.P.Val         B uniprot
+#1   a2.HS.Glycoprotein -1.39555513 8.059832 -1.5094355 0.1351575 0.9998487 -4.401547  P02765
+#2 a2.HS.Glycoprotein.1  0.03507062 5.013690  0.4782737 0.6337658 0.9998487 -4.898613  P02765
+rank<-res%>%group_by(uniprot)%>%slice_max(abs(logFC))%>%
+  arrange(desc(logFC))%>%select(uniprot,logFC)%>%deframe()
+gseares<-gseGO(geneList = rank,keyType = "UNIPROT",ont="BP",OrgDb = 'org.Hs.eg.db')
 ```
-# top genes per contrast
+# Top genes per contrast
 ```{r}
 #to check the changes between conditions
 temp<-data%>%select(Gene,Log2FC_LApos.LAneg,
@@ -219,17 +221,24 @@ temp%>%
 temp%>%distinct(sample,sampletype)%>%count(sampletype)
 ```
 
-# Does enrichment make sense with this type of data?
+# Maybe you don't need this
+## Check expression by sample
 ```{r}
-temp<-data%>%select(Gene,Log2FC_EDTA.CPT,Log2FC_Endometriosis.Control,
-                    Log2FC_Endometrioma.Control,Log2FC_LApos.LAneg)%>%
-  pivot_longer(-1,names_to = "contrast",values_to = "LFC")
-ranks<-temp%>%split(f = temp$contast)%>%lapply(function(x) 
-  x%>%drop_na()%>%group_by(Gene)%>%slice_max(LFC)%>%arrange(desc(LFC))%>%
-    select(-contast)%>%deframe)
+summary(mat)#statistics about value distribution for the sample
 
-#find appropiate db for this ids
-gseares<-lapply(ranks,function(x) 
-  gseGO(geneList = x,keyType = "SYMBOL",ont="BP",OrgDb = 'org.Hs.eg.db'))
-sapply(gseares,nrow)
+#like summary but visual
+temp<-temp%>%rownames_to_column("SeqID")%>%
+  pivot_longer(-1,names_to = "sample",values_to = "raw_value")
+temp%>%ggplot(aes(x=sample,y=raw_value))+
+  geom_boxplot()+
+  scale_y_log10()+
+  theme(axis.text.x = element_text(angle=45,vjust = 1,hjust = 1))#otherwise samplenames will be horizontal and unreadable
+#samples with really different distributions may be a red flag
+
+#you can check distributions are not significantly different but this is slow
+#run it for some samples
+temp%>%
+  wilcox_test(raw_value~sample,#test expression by sample
+              ref.group ="Counts_BEME025_Endometrioma_Endometrioma_NA")#arbitrary reference
+#there are better test for this, what did they used for the report?
 ```
